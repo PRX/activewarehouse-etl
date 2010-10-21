@@ -8,6 +8,7 @@ module ETL #:nodoc:
     # * <tt>:dest</tt>: The destination field name
     class SequenceProcessor < ETL::Processor::RowProcessor
       def process(row)
+        return row unless row
         sequences[configuration[:context]] ||= 0
         row[configuration[:dest]] = sequences[configuration[:context]] += 1
         row

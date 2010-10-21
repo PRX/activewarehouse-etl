@@ -23,6 +23,7 @@ module ETL #:nodoc:
   
       # Process the row expanding it into hierarchy values
       def process(row)
+        return row unless row
         rows = []
         target = configuration[:target]
         table = configuration[:table]

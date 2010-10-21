@@ -24,6 +24,7 @@ module ETL #:nodoc:
       # Process the row. This implementation will only return a row if it
       # it's key combination has not already been seen.
       def process(row)
+        return row unless row
         key = (keys.collect { |k| row[k] }).join('|')
         unless compound_key_constraints[key]
           compound_key_constraints[key] = 1

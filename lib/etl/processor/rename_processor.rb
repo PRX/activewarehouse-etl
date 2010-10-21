@@ -7,6 +7,7 @@ module ETL #:nodoc:
     # * <tt>:dest</tt>: The destination field name
     class RenameProcessor < ETL::Processor::RowProcessor
       def process(row)
+        return row unless row
         source_value = row[configuration[:source]]
         case source_value
         when Numeric

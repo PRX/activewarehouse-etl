@@ -36,9 +36,7 @@ module ETL #:nodoc:
       # Add a surrogate key to the row
       def process(row)
         if row
-          #puts "processing row #{row.inspect}"
           @surrogate_key += 1
-          #puts "adding surrogate key to row: #{@surrogate_key}"
           row[destination] = @surrogate_key
           row
         end

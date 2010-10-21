@@ -9,6 +9,7 @@ module ETL #:nodoc:
     class CopyFieldProcessor < ETL::Processor::RowProcessor
       # Process the given row
       def process(row)
+        return row unless row
         destination = (configuration[:destination] || configuration[:dest])
         source_value = row[configuration[:source]]
         case source_value

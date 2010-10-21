@@ -18,6 +18,7 @@ module ETL #:nodoc:
       
       # Process the row.
       def process(row)
+        return row unless row
         fields.each { |field| return if row[field].blank? }
         row
       end
