@@ -54,7 +54,7 @@ module ETL #:nodoc:
       
       # Process the row
       def process(row)
-        return row unless should_check?
+        return row unless should_check? || !row
         conn = ETL::Engine.connection(target)
         q = "SELECT * FROM #{table_name} WHERE "
         conditions = []
