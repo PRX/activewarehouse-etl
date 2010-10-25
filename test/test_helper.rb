@@ -2,12 +2,16 @@ $:.unshift(File.dirname(__FILE__) + '/../lib')
 $:.unshift(File.dirname(__FILE__))
 
 Dir[File.dirname(__FILE__) + "/vendor/**/lib"].each { |lib| $:.unshift(lib) }
+require 'rubygems'
+gem 'activesupport', '2.3.2'
+gem 'activerecord', '2.3.2'
 
 require 'test/unit'
 require 'pp'
 require 'etl'
 require 'shoulda'
 require 'flexmock/test_unit'
+require 'active_support'
 
 ETL::Engine.init(:config => File.dirname(__FILE__) + '/database.yml')
 ETL::Engine.logger = Logger.new(STDOUT)

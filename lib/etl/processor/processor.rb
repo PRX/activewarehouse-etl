@@ -1,3 +1,4 @@
+
 module ETL #:nodoc:
   module Processor #:nodoc:
     # Base class for pre and post processors. Subclasses must implement the +process+ method.

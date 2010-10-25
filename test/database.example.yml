@@ -1,3 +1,4 @@
+
 operational_database:
   adapter: mysql
   username: root

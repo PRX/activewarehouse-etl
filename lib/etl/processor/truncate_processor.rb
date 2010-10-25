@@ -23,6 +23,7 @@ module ETL #:nodoc:
       
       def process
         conn = ETL::Engine.connection(target)
+        
         conn.truncate(table_name)
       end
       
