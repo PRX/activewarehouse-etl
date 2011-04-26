@@ -294,6 +294,7 @@ module ETL #:nodoc:
       }
       say_on_own_line "(Waiting on process #{pid} to complete for #{control.path})"
       Process.waitpid(pid)
+      ActiveRecord::Base.verify_active_connections!
     end
 
     # Process the specified control file
