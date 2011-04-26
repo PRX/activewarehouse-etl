@@ -285,9 +285,19 @@ module ETL #:nodoc:
       ETL::Engine.batch.status = (errors.length > 0 ? 'completed with errors' : 'completed')
       ETL::Engine.batch.save!
     end
-    
-    # Process the specified control file
+
     def process_control(control)
+      say_on_own_line "(Started process for #{control.path})"
+      pid = fork {
+        ActiveRecord::Base.verify_active_connections!
+        self._process_control(control)
+      }
+      say_on_own_line "(Waiting on process #{pid} to complete for #{control.path})"
+      Process.waitpid(pid)
+    end
+
+    # Process the specified control file
+    def _process_control(control)
       control = ETL::Control::Control.resolve(control)
       say_on_own_line "Processing control #{control.file}"
       
