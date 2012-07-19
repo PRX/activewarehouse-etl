@@ -27,6 +27,8 @@ module ETL #:nodoc:
       attr_accessor :disable_keys
       # replace existing records, not just insert
       attr_accessor :replace
+
+      attr_accessor :commit_every
        
       # Initialize the processor.
       #
@@ -56,6 +58,7 @@ module ETL #:nodoc:
         @field_enclosure = configuration[:field_enclosure]
         @disable_keys = configuration[:disable_keys] || false
         @replace = configuration[:replace] || false
+        @commit_every = configuration[:commit_every].to_i || 0
         
         raise ControlError, "Target must be specified" unless @target
         raise ControlError, "Table must be specified" unless @table
@@ -65,25 +68,56 @@ module ETL #:nodoc:
       def process
         return if ETL::Engine.skip_bulk_import
         return if File.size(file) == 0
+
+        options = {}
+        options[:columns] = columns
         
-        conn = ETL::Engine.connection(target)
-        conn.transaction do
-          conn.truncate(table_name) if truncate
-          options = {}
-          options[:columns] = columns
-          
-          options[:disable_keys] = true if disable_keys
-          options[:replace] = true if replace
-          
-          if field_separator || field_enclosure || line_separator || null_string
-            options[:fields] = {}
-            options[:fields][:null_string] = null_string if null_string
-            options[:fields][:delimited_by] = field_separator if field_separator
-            options[:fields][:enclosed_by] = field_enclosure if field_enclosure
-            options[:fields][:terminated_by] = line_separator if line_separator
-          end
-          conn.bulk_load(file, table_name, options)
+        options[:disable_keys] = true if disable_keys
+        options[:replace] = true if replace
+        
+        if field_separator || field_enclosure || line_separator || null_string
+          options[:fields] = {}
+          options[:fields][:null_string] = null_string if null_string
+          options[:fields][:delimited_by] = field_separator if field_separator
+          options[:fields][:enclosed_by] = field_enclosure if field_enclosure
+          options[:fields][:terminated_by] = line_separator if line_separator
         end
+
+        conn = ETL::Engine.connection(target)
+
+        load_file_list.each do |load_file|
+          # puts " - load_file: #{load_file}"
+
+          conn.transaction do
+            conn.truncate(table_name) if truncate
+            conn.bulk_load(load_file, table_name, options)
+          end
+
+          # only need to truncate once
+          @truncate = false
+        end
+
+      end
+
+      def load_file_list
+        lines = `wc -l #{file}`
+        lines = lines.to_i
+        puts " - load_file_list: lines: #{lines}, commit_every: #{commit_every}"
+
+        return [file] if ((commit_every <= 0) || (lines <= commit_every))
+
+        # so there are too many lines - split it into smaller files with a prefix
+        prefix = File.basename(file, File.extname(file)) + '_split_'
+        # puts " - load_file_list: prefix: #{prefix}"
+
+        split_cmd = "split -l #{commit_every} #{file} #{File.join(File.dirname(file), "#{prefix}")}"
+        # puts " - load_file_list: split_cmd: #{split_cmd}"
+        `#{split_cmd}`
+
+        files = Dir.glob(File.join(File.dirname(file), "#{prefix}*"))
+        # puts " - load_file_list: files: #{files}"
+
+        files.empty? ? [file] : files
       end
       
       def table_name
