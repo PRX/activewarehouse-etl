@@ -4,6 +4,7 @@ module ETL #:nodoc:
     # http://httpd.apache.org/docs/2.2/logs.html
     class ApacheCombinedLogParser < ETL::Parser::Parser
       include HttpTools
+
       def initialize(source, options={})
         super
       end
@@ -18,7 +19,7 @@ module ETL #:nodoc:
       
       def parse(line)
         # example line:  127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
-        line =~ /^(\S+)\s(\S+)\s(\S+)\s\[([^\]]*)\]\s"([^"]*)"\s(\d*)\s(\d*)\s"([^"]*)"\s"([^"]*)"$/
+        line =~ /^(\S+)\s(\S+)\s(\S+)\s\[([^\]]*)\]\s"([^"]*)"\s(\d*)\s(\S*)\s"([^"]*)"\s"([^"]*)"$/
         fields = {
           :ip_address => $1,
           :identd => $2,
@@ -26,7 +27,7 @@ module ETL #:nodoc:
           :timestamp => $4,
           :request => $5,
           :response_code => $6,
-          :bytes => $7,
+          :bytes => $7.to_i,
           :referrer => $8,
           :user_agent => $9,
         }
