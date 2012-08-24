@@ -37,8 +37,8 @@ module ETL #:nodoc:
         
         fields[:method], fields[:path] = fields[:request].split(/\s/)
 
-        fields.merge!(parse_user_agent(fields[:user_agent])) unless fields[:user_agent].nil?
-        fields.merge!(parse_uri(fields[:referrer], :prefix => 'referrer_'))
+        # fields.merge!(parse_user_agent(fields[:user_agent])) unless fields[:user_agent].nil?
+        # fields.merge!(parse_uri(fields[:referrer], :prefix => 'referrer_'))
         
         fields.each do |key, value|
           fields[key] = nil if value == '-'
