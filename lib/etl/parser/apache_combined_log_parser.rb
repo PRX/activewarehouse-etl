@@ -41,7 +41,7 @@ module ETL #:nodoc:
           # fields.merge!(parse_user_agent(fields[:user_agent])) unless fields[:user_agent].nil?
           # fields.merge!(parse_uri(fields[:referrer], :prefix => 'referrer_')) unless fields[:referrer].nil?
           
-          fields.each{|k, v| v == '-' ? fields[k] = nil}
+          fields.each{|k, v| fields[k] = nil if v == '-'}
         end
         fields
       end
