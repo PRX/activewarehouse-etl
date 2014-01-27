@@ -3,9 +3,9 @@ require File.dirname(__FILE__) + '/test_helper'
 # Test the flat text parsers
 class ParserTest < Test::Unit::TestCase
   # Test parsing delimited data
-  def test_delimited_parser
+  def test_csv_parser
     control = ETL::Control::Control.resolve(File.dirname(__FILE__) + '/delimited.ctl')
-    parser = ETL::Parser::DelimitedParser.new(control.sources.first)
+    parser = ETL::Parser::CsvParser.new(control.sources.first)
     rows = parser.collect { |row| row }
     assert_equal 3, rows.length
     assert_equal({:first_name=>"Chris", :last_name=>"Smith", :ssn=>"111223333", :age=>"24", :sex => 'M'}, rows.first)
@@ -45,6 +45,24 @@ class ParserTest < Test::Unit::TestCase
     assert_equal 2, rows.length
     assert_equal({:first_name=>"Bob", :last_name=>"Smith", :ssn=>"123456789", :age=>"24"}, rows.first)
   end
+
+  # Test the Excel parser
+  def test_excel_parser
+    control = ETL::Control::Control.resolve(File.dirname(__FILE__) + '/excel.ctl')
+    parser = control.sources.first.parser
+    rows = parser.collect { |row| row }
+    assert_equal 2, rows.length
+    assert_equal({:first_name=>"Bob", :last_name=>"Smith", :ssn=>123456789, :age=>24}, rows.first)
+  end
+  
+  # Test 2 the Excel parser
+  def test_excel2_parser
+    control = ETL::Control::Control.resolve(File.dirname(__FILE__) + '/excel2.ctl')
+    parser = control.sources.first.parser
+    rows = parser.collect { |row| row }
+    assert_equal 2, rows.length
+    assert_equal({:first_name=>"John", :last_name=>"Doe", :ssn=>222114545, :age=>31}, rows[1])
+  end
   
   # Test the Apache combined log format parser
   def test_apache_combined_log_parser
@@ -70,33 +88,35 @@ class ParserTest < Test::Unit::TestCase
       :timestamp=>Time.mktime(2000, 10, 10, 13, 55, 36),
       :ostype=>"Windows",
       :request=>"GET /apache_pb.gif HTTP/1.0",
-      :host=>"www.example.com",
-      :domain => "example.com",
+      :referrer_host=>"www.example.com",
+      :referrer_domain=>"example.com",
       :os=>"Win98",
-      :uri_path=>"/start.html",
+      :referrer_uri_path=>"/start.html",
+      :method=>"GET",
       :response_code=>"200",
-      :port=>80,
+      :referrer_port=>80,
       :os_version=>nil,
       :ip_address=>"127.0.0.1",
-      :scheme=>"http",
+      :referrer_scheme=>"http",
       :bytes=>"2326",
       :browser=>"Mozilla",
       :identd=>nil,
+      :path=>"/apache_pb.gif",
       :referrer=>"http://www.example.com/start.html",
       :browser_version_major=>"4",
       :user=>"frank"}, rows.first, 'Failed on first row')
     assert_equal({
       :user_agent=>"Mozilla/4.08 [en] (Win98; I ;Nav)",
-      :port=>80,
+      :referrer_port=>80,
       :timestamp=>Time.mktime(2000, 10, 11, 5, 22, 2),
       :browser_version_minor=>nil,
       :os_version=>nil,
       :request=>"GET /apache_pb.gif HTTP/1.1",
       :ostype=>"Windows",
-      :scheme=>"http",
+      :referrer_scheme=>"http",
       :response_code=>"200",
-      :host=>"www.foo.com",
-      :domain => "foo.com",
+      :referrer_host=>"www.foo.com",
+      :referrer_domain=>"foo.com",
       :ip_address=>"127.0.0.1",
       :browser=>"Mozilla",
       :bytes=>"2326",
@@ -104,18 +124,20 @@ class ParserTest < Test::Unit::TestCase
       :identd=>nil,
       :browser_version_major=>"4",
       :referrer=>"http://www.foo.com/",
-      :uri_path=>"/",
+      :referrer_uri_path=>"/",
+      :method=>"GET",
+      :path=>"/apache_pb.gif",
       :user=>"bob"}, rows[1], 'Failed on second row')
     assert_equal({
       :browser_version_major=>"4",
       :browser_version_minor=>nil,
-      :port=>nil,
+      :referrer_port=>nil,
       :request=>"GET /apache_pb.gif HTTP/1.1",
       :ostype=>"Windows",
       :os_version=>nil,
       :response_code=>"200",
-      :host=>nil,
-      :scheme=>nil,
+      :referrer_host=>nil,
+      :referrer_scheme=>nil,
       :bytes=>"2326",
       :ip_address=>"127.0.0.1",
       :browser=>"Mozilla",
@@ -124,7 +146,9 @@ class ParserTest < Test::Unit::TestCase
       :user=>"bob",
       :user_agent=>"Mozilla/4.08 [en] (Win98; I ;Nav)",
       :identd=>nil,
-      :uri_path=>nil,
+      :referrer_uri_path=>nil,
+      :path=>"/apache_pb.gif",
+      :method=>"GET",
       :timestamp=>Time.mktime(2000, 10, 11, 5, 52, 31)}, rows[2], 'Failed on third row')
   end
   

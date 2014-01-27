@@ -1,6 +1,8 @@
 require 'fileutils'
 
 module ETL #:nodoc:
+  class NoLimitSpecifiedError < StandardError; end
+  
   class Source < ::ActiveRecord::Base #:nodoc:
     # Connection for database sources
   end
@@ -41,17 +43,18 @@ module ETL #:nodoc:
         super
         @target = configuration[:target]
         @table = configuration[:table]
+        @query = configuration[:query]
       end
       
       # Get a String identifier for the source
       def to_s
-        "#{host}/#{database}/#{table}"
+        "#{host}/#{database}/#{@table}"
       end
       
       # Get the local directory to use, which is a combination of the 
       # local_base, the db hostname the db database name and the db table.
       def local_directory
-        File.join(local_base, host, database, configuration[:table])
+        File.join(local_base, to_s)
       end
       
       # Get the join part of the query, defaults to nil
@@ -83,7 +86,7 @@ module ETL #:nodoc:
       # Get the number of rows in the source
       def count(use_cache=true)
         return @count if @count && use_cache
-        if store_locally || read_locally
+        if @store_locally || read_locally
           @count = count_locally
         else
           @count = connection.select_value(query.gsub(/SELECT .* FROM/, 'SELECT count(1) FROM'))
@@ -107,13 +110,16 @@ module ETL #:nodoc:
           ETL::Engine.logger.debug "Reading from local cache"
           read_rows(last_local_file, &block)
         else # Read from the original source
-          if store_locally
+          if @store_locally
             file = local_file
             write_local(file)
             read_rows(file, &block)
           else
-            query_rows.each do |row|
-              row = ETL::Row.new(row.symbolize_keys)
+            query_rows.each do |r|
+              row = ETL::Row.new()
+              r.symbolize_keys.each_pair { |key, value|
+                row[key] = value
+              }
               row.source = self
               yield row
             end
@@ -128,7 +134,7 @@ module ETL #:nodoc:
         raise "Local cache trigger file not found" unless File.exists?(local_file_trigger(file))
         
         t = Benchmark.realtime do
-          FasterCSV.open(file, :headers => true).each do |row|
+          CSV.open(file, :headers => true).each do |row|
             result_row = ETL::Row.new
             result_row.source = self
             row.each do |header, field|
@@ -150,7 +156,7 @@ module ETL #:nodoc:
       def write_local(file)
         lines = 0
         t = Benchmark.realtime do
-          FasterCSV.open(file, 'w') do |f|
+          CSV.open(file, 'w') do |f|
             f << columns
             query_rows.each do |row|
               f << columns.collect { |column| row[column.to_s] }
@@ -165,8 +171,8 @@ module ETL #:nodoc:
       # Get the query to use
       def query
         return @query if @query
-        q = "SELECT #{select} FROM #{configuration[:table]}"
-        q << " #{join}" if join
+        q = "SELECT #{select} FROM #{@table}"
+        q << " JOIN #{join}" if join
         
         conditions = []
         if new_records_only
@@ -185,12 +191,13 @@ module ETL #:nodoc:
         
         q << " GROUP BY #{group}" if group
         q << " ORDER BY #{order}" if order
-
-        if ETL::Engine.limit || ETL::Engine.offset
-          options = {}
-          options[:limit] = ETL::Engine.limit if ETL::Engine.limit
-          options[:offset] = ETL::Engine.offset if ETL::Engine.offset
-          connection.add_limit_offset!(q, options)
+        
+        limit = ETL::Engine.limit
+        offset = ETL::Engine.offset
+        if limit || offset
+          raise NoLimitSpecifiedError, "Specifying offset without limit is not allowed" if offset and limit.nil?
+          q << " LIMIT #{limit}"
+          q << " OFFSET #{offset}" if offset
         end
         
         q = q.gsub(/\n/,' ')
@@ -199,7 +206,12 @@ module ETL #:nodoc:
       end
       
       def query_rows
-        @query_rows ||= connection.select_all(query)
+        return @query_rows if @query_rows
+        if (configuration[:mysqlstream] == true)
+          MySqlStreamer.new(query,@target,connection)
+        else
+          connection.select_all(query)
+        end
       end
       
       # Get the database connection to use

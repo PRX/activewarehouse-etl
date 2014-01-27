@@ -33,17 +33,36 @@ require 'rubygems'
 
 unless defined?(REXML::VERSION)
   require 'rexml/rexml'
-  REXML::VERSION = REXML::Version
+  unless defined?(REXML::VERSION)
+    REXML::VERSION = REXML::Version
+  end
 end
 
 require 'active_support'
 require 'active_record'
 require 'adapter_extensions'
 
+if ActiveSupport::VERSION::STRING >= '3.2'
+  # support for cattr_accessor
+  require 'active_support/core_ext/class/attribute_accessors'
+end
+
 if RUBY_VERSION < '1.9'
   require 'faster_csv'
+  CSV = FasterCSV unless defined?(CSV)
 else
   require 'csv'
+end
+
+# patch for https://github.com/activewarehouse/activewarehouse-etl/issues/24
+# allow components to require optional gems
+class Object
+  def optional_require(feature)
+    begin
+      require feature
+    rescue LoadError
+    end
+  end
 end
 
 $:.unshift(File.dirname(__FILE__))

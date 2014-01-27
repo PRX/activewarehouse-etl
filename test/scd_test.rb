@@ -72,11 +72,7 @@ class ScdTest < Test::Unit::TestCase
           assert_equal 1, find_bobs.first.id
         end
         should "set the effective date" do
-          # TODO: This is a test bug - if the tests don't run at the correct
-          # time, this timestamp may not match the timestamp used during the
-          # creation of the SCD row
-          assert_equal current_datetime, find_bobs.first.effective_date, 
-            "failure might be a test bug - see test notes"
+          assert_in_delta 1, current_datetime.to_time.to_i, find_bobs.first.effective_date.to_time.to_i
         end
         should "set the end date" do
           assert_equal @end_of_time, find_bobs.first.end_date
@@ -86,8 +82,7 @@ class ScdTest < Test::Unit::TestCase
         end
         should "skip the load if there is no change" do
           do_type_2_run(1)
-          lines = lines_for('scd_test_type_2.txt')
-          assert lines.empty?, "scheduled load expected to be empty, was #{lines.size} records"
+          assert_equal 1, find_bobs.last.id, "scheduled load expected to be empty"
         end
         
       end
@@ -117,11 +112,7 @@ class ScdTest < Test::Unit::TestCase
           assert_los_angeles_address(find_bobs.detect { |bob| 2 == bob.id })
         end
         should "activate the new record" do
-          # TODO: This is a test bug - if the tests don't run at the correct
-          # time, this timestamp may not match the timestamp used during the
-          # creation of the SCD row
-          assert_equal current_datetime, find_bobs.detect { |bob| 2 == bob.id }.effective_date, 
-            "failure might be a test bug - see test notes"
+          assert_in_delta 1, current_datetime.to_time.to_i, find_bobs.detect { |bob| 2 == bob.id }.effective_date.to_time.to_i
         end
         should "set the end date for the new record" do
           assert_equal @end_of_time, find_bobs.detect { |bob| 2 == bob.id }.end_date
@@ -134,9 +125,7 @@ class ScdTest < Test::Unit::TestCase
         end
         should "only execute a change once" do
           do_type_2_run(2)
-          assert_equal 2, count_bobs
-          lines = lines_for('scd_test_type_2.txt')
-          assert lines.empty?, "scheduled load expected to be empty, was #{lines.size} records"
+          assert_equal 2, count_bobs, "scheduled load expected to be empty"
         end
         should "insert new records on revert" do
           do_type_2_run(1)
@@ -184,8 +173,7 @@ class ScdTest < Test::Unit::TestCase
         end
         should "skip load when there is no change" do
           do_type_2_run_with_only_city_state_zip_scd(2)
-          lines = lines_for('scd_test_type_2.txt')
-          assert lines.empty?, "scheduled load expected to be empty, was #{lines.size} records"
+          assert_equal 2, count_bobs, "scheduled load expected to be empty"
         end
       end
     end

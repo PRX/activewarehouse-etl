@@ -27,7 +27,7 @@ module ETL #:nodoc:
       attr_accessor :disable_keys
       # replace existing records, not just insert
       attr_accessor :replace
-
+      # split output into smaller files, bulk load each one
       attr_accessor :commit_every
        
       # Initialize the processor.
@@ -85,44 +85,33 @@ module ETL #:nodoc:
 
         conn = ETL::Engine.connection(target)
 
-        load_file_list.each do |load_file|
-          # puts " - load_file: #{load_file}"
-
-          conn.transaction do
-            conn.truncate(table_name) if truncate
-            conn.bulk_load(load_file, table_name, options)
-          end
-
-          # only need to truncate once
-          @truncate = false
+        conn.transaction do
+          conn.truncate(table_name) if truncate
+          load_file_list.each{ |load_file| conn.bulk_load(load_file, table_name, options) }
         end
+      end
 
+      def table_name
+        ETL::Engine.table(table, ETL::Engine.connection(target))
       end
 
       def load_file_list
         lines = `wc -l #{file}`
         lines = lines.to_i
-        puts " - load_file_list: lines: #{lines}, commit_every: #{commit_every}"
 
         return [file] if ((commit_every <= 0) || (lines <= commit_every))
 
         # so there are too many lines - split it into smaller files with a prefix
         prefix = File.basename(file, File.extname(file)) + '_split_'
-        # puts " - load_file_list: prefix: #{prefix}"
 
         split_cmd = "split -l #{commit_every} #{file} #{File.join(File.dirname(file), "#{prefix}")}"
-        # puts " - load_file_list: split_cmd: #{split_cmd}"
         `#{split_cmd}`
 
         files = Dir.glob(File.join(File.dirname(file), "#{prefix}*"))
-        # puts " - load_file_list: files: #{files}"
 
         files.empty? ? [file] : files
       end
       
-      def table_name
-        ETL::Engine.table(table, ETL::Engine.connection(target))
-      end
     end
   end
 end

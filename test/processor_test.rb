@@ -1,8 +1,5 @@
 require File.dirname(__FILE__) + '/test_helper'
 
-class Person < ActiveRecord::Base
-end
-
 # Test pre- and post-processors
 class ProcessorTest < Test::Unit::TestCase
   # Test bulk import functionality
@@ -11,11 +8,17 @@ class ProcessorTest < Test::Unit::TestCase
     should "should import successfully" do
       assert_nothing_raised { do_bulk_import }
       assert_equal 3, Person.count
+      assert_equal "Foxworthy", Person.find(2).last_name
     end
   end
   
   def test_bulk_import_with_empties
-    assert_raise(ActiveRecord::StatementInvalid) { do_bulk_import('bulk_import_with_empties.txt') }
+    # this test ensure that one column with empty value will still allow
+    # the row to be imported
+    # this doesn't apply to the id column though - untested
+    assert_nothing_raised { do_bulk_import('bulk_import_with_empties.txt') }
+    assert_equal 3, Person.count
+    assert Person.find(2).last_name.blank?
   end
 
   def test_truncate

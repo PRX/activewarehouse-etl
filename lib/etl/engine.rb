@@ -32,7 +32,7 @@ module ETL #:nodoc:
           options[:config] = 'config/database.yml' unless File.exist?(options[:config])
           database_configuration = YAML::load(ERB.new(IO.read(options[:config])).result + "\n")
           ActiveRecord::Base.configurations.merge!(database_configuration)
-          ETL::Base.configurations = database_configuration
+          ETL::Base.configurations = HashWithIndifferentAccess.new(database_configuration)
           #puts "configurations in init: #{ActiveRecord::Base.configurations.inspect}"
           
           require 'etl/execution'
@@ -49,8 +49,8 @@ module ETL #:nodoc:
       # * ETL::Control::Control instance
       # * ETL::Batch::Batch instance
       #
-      # The process command will accept either a .ctl Control file or a .ebf
-      # ETL Batch File.
+      # The process command will accept either a .ctl or .ctl.rb for a Control file or a .ebf
+      #  or .ebf.rb for an ETL Batch File.
       def process(file)
         new().process(file)
       end
@@ -83,6 +83,9 @@ module ETL #:nodoc:
       def timestamp
         Time.now.strftime("%Y%m%d%H%M%S")
       end
+
+      # exit code to be passed to the command line
+      attr_accessor :exit_code
 
       # The current source
       attr_accessor :current_source
@@ -173,17 +176,19 @@ module ETL #:nodoc:
       # Modify the table name if necessary
       def table(table_name, connection)
         if use_temp_tables?
-          returning "tmp_#{table_name}" do |temp_table_name|
-            if temp_tables[temp_table_name].nil?
-              # Create the temp table and add it to the mapping
-              begin connection.drop_table(temp_table_name); rescue; end
-              connection.copy_table(table_name, temp_table_name)
-              temp_tables[temp_table_name] = {
-                :table => table_name,
-                :connection => connection
-              }
-            end
+          temp_table_name = "tmp_#{table_name}"
+
+          if temp_tables[temp_table_name].nil?
+            # Create the temp table and add it to the mapping
+            begin connection.drop_table(temp_table_name); rescue; end
+            connection.copy_table(table_name, temp_table_name)
+            temp_tables[temp_table_name] = {
+              :table => table_name,
+              :connection => connection
+            }
           end
+
+          temp_table_name
         else
           table_name
         end
@@ -198,9 +203,11 @@ module ETL #:nodoc:
       
       # Establish the named connection and return the database specific connection
       def establish_connection(name)
+        raise ETL::ETLError, "Connection with no name requested. Is there a missing :target parameter somewhere?" if name.blank?
+        
         logger.debug "Establishing connection to #{name}"
         conn_config = ETL::Base.configurations[name.to_s]
-        raise ETL::ETLError, "No connection found for #{name}" unless conn_config
+        raise ETL::ETLError, "Cannot find connection named #{name.inspect}" unless conn_config
         connection_method = "#{conn_config['adapter']}_connection"
         ETL::Base.send(connection_method, conn_config)
       end
@@ -228,6 +235,14 @@ module ETL #:nodoc:
     def errors
       @errors ||= []
     end
+
+    # First attempt at centralizing error notifications
+    def track_error(control, msg)
+      errors << msg
+      control.error_handlers.each do |handler|
+        handler.call(msg)
+      end
+    end
     
     # Get a Hash of benchmark values where each value represents the total
     # amount of time in seconds spent processing in that portion of the ETL
@@ -253,15 +268,18 @@ module ETL #:nodoc:
     # * ETL::Batch::Batch instance
     def process(file)
       case file
-      when String
-        process(File.new(file))
-      when File
-        process_control(file) if file.path =~ /.ctl$/
-        process_batch(file) if file.path =~ /.ebf$/
-      when ETL::Control::Control
-        process_control(file)
-      when ETL::Batch::Batch
-        process_batch(file)
+        when String
+          process(File.new(file))
+        when File
+          case file.path
+            when /\.ctl(\.rb)?$/; process_control(file)
+            when /\.ebf(\.rb)?$/; process_batch(file)
+            else raise RuntimeError, "Unsupported file type - #{file.path}"
+          end
+        when ETL::Control::Control
+          process_control(file)
+        when ETL::Batch::Batch
+          process_batch(file)
       else
         raise RuntimeError, "Process object must be a String, File, Control 
         instance or Batch instance"
@@ -302,12 +320,13 @@ module ETL #:nodoc:
       control = ETL::Control::Control.resolve(control)
       say_on_own_line "Processing control #{control.file}"
       
-      ETL::Engine.job = ETL::Execution::Job.create!(
-        :control_file => control.file, 
-        :status => 'executing',
-        :batch_id => ETL::Engine.batch ? ETL::Engine.batch.id : nil
-      )
-      
+      ETL::Engine.job = ETL::Execution::Job.new.tap do |job|
+        job.control_file = control.file
+        job.status = 'executing'
+        job.batch_id = ETL::Engine.batch ? ETL::Engine.batch.id : nil
+        job.save!
+      end
+
       execute_dependencies(control)
       
       start_time = Time.now
@@ -347,13 +366,14 @@ module ETL #:nodoc:
               control.after_read_processors.each do |processor|
                 processed_rows = []
                 rows.each do |row|
-                  processed_rows << processor.process(row)
+                  processed_rows << processor.process(row) unless empty_row?(row)
                 end
-                rows = processed_rows.flatten
+                rows = processed_rows.flatten.compact
               end
             rescue => e
               msg = "Error processing rows after read from #{Engine.current_source} on line #{Engine.current_source_row}: #{e}"
-              errors << msg
+              # TODO - track more information: row if possible, full exception...
+              track_error(control, msg)
               Engine.logger.error(msg)
               e.backtrace.each { |line| Engine.logger.error(line) }
               exceeded_error_threshold?(control) ? break : next
@@ -366,7 +386,7 @@ module ETL #:nodoc:
               Engine.logger.debug "Executing transforms"
               rows.each do |row|
                 # only do the transform if there is a row
-                if row && row.respond_to?(:[])
+                unless empty_row?(row)
                   control.transforms.each do |transform|
                     name = transform.name.to_sym
                     row[name] = transform.transform(name, row[name], row)
@@ -375,10 +395,10 @@ module ETL #:nodoc:
               end
             rescue ResolverError => e
               Engine.logger.error(e.message)
-              errors << e.message
+              track_error(control, e.message)
             rescue => e
               msg = "Error transforming from #{Engine.current_source} on line #{Engine.current_source_row}: #{e}"
-              errors << msg
+              track_error(control, msg)
               Engine.logger.error(msg)
               e.backtrace.each { |line| Engine.logger.error(line) }
             ensure
@@ -397,12 +417,14 @@ module ETL #:nodoc:
               Engine.logger.debug "Processing before write"
               control.before_write_processors.each do |processor|
                 processed_rows = []
-                rows.each { |row| processed_rows << processor.process(row) }
+                rows.each do |row|
+                  processed_rows << processor.process(row) unless empty_row?(row)
+                end
                 rows = processed_rows.flatten.compact
               end
             rescue => e
               msg = "Error processing rows before write from #{Engine.current_source} on line #{Engine.current_source_row}: #{e}"
-              errors << msg
+              track_error(control, msg)
               Engine.logger.error(msg)
               e.backtrace.each { |line| Engine.logger.error(line) }
               exceeded_error_threshold?(control) ? break : next
@@ -422,7 +444,7 @@ module ETL #:nodoc:
               end
             rescue => e
               msg = "Error writing to #{Engine.current_destination}: #{e}"
-              errors << msg
+              track_error(control, msg)
               Engine.logger.error msg
               e.backtrace.each { |line| Engine.logger.error(line) }
               exceeded_error_threshold?(control) ? break : next
@@ -433,7 +455,7 @@ module ETL #:nodoc:
         
         if exceeded_error_threshold?(control)
           say_on_own_line "Exiting due to exceeding error threshold: #{control.error_threshold}"
-          return
+          ETL::Engine.exit_code = 1
         end
         
       end
@@ -447,7 +469,7 @@ module ETL #:nodoc:
         execute_screens(control)
       rescue FatalScreenError => e
         say "Fatal screen error during job execution: #{e.message}"
-        exit
+        ETL::Engine.exit_code = 2
       rescue ScreenError => e
         say "Screen error during job execution: #{e.message}"
         return
@@ -469,7 +491,7 @@ module ETL #:nodoc:
         execute_screens(control, :after_post_process)
       rescue FatalScreenError => e
         say "Fatal screen error during job execution: #{e.message}"
-        exit
+        ETL::Engine.exit_code = 3
       rescue ScreenError => e
         say "Screen error during job execution: #{e.message}"
         return
@@ -495,6 +517,11 @@ module ETL #:nodoc:
       ETL::Engine.job.completed_at = Time.now
       ETL::Engine.job.status = (errors.length > 0 ? 'completed with errors' : 'completed')
       ETL::Engine.job.save!
+    end
+    
+    def empty_row?(row)
+      # unsure about why it should respond to :[] - keeping it just in case for the moment
+      row.nil? || !row.respond_to?(:[])
     end
     
     private
